@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     import pickle
     import tensorflow as tf
 
+    logger.info("Loading model...")
     model = tf.keras.models.load_model(MODEL_PATH)
 
     if os.path.exists(SCALER_PATH):
@@ -40,14 +41,22 @@ async def lifespan(app: FastAPI):
         with open(LABELS_PATH) as f:
             label_names = [line.strip() for line in f if line.strip()]
 
-    # ✅ Warm-up
+    # ✅ Warm-up (prevents cold delay)
     dummy = np.zeros((1, model.input_shape[-1]))
     model.predict(dummy, verbose=0)
+
+    logger.info("Model loaded successfully")
 
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+# ✅ FIX: explicitly enable docs (important for Render)
+app = FastAPI(
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +74,11 @@ class PredictRequest(BaseModel):
         if not v:
             raise ValueError("features cannot be empty")
         return v
+
+
+@app.get("/")
+def root():
+    return {"message": "DDoS Detection API is running"}
 
 
 @app.get("/health")
@@ -109,4 +123,4 @@ def predict(req: PredictRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000)
