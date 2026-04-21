@@ -1,0 +1,28 @@
+# render.yaml — Render deployment manifest
+# Docs: https://render.com/docs/render-yaml-spec
+#
+# This file tells Render how to deploy your API automatically
+# when you push to GitHub.
+ 
+services:
+  - type: web
+    name: ddos-detection-api
+    runtime: docker          # use our Dockerfile
+    dockerfilePath: ./Dockerfile
+ 
+    # Free tier (change to 'starter' for always-on, paid)
+    plan: free
+ 
+    envVars:
+      - key: CONFIDENCE_THRESHOLD
+        value: "0.7"
+      - key: MODEL_PATH
+        value: "model/dnn_ddos_model.h5"
+      - key: SCALER_PATH
+        value: "model/scaler.pkl"
+      - key: LABELS_PATH
+        value: "model/labels.txt"
+ 
+    # Health check — Render uses this to verify your app started
+    healthCheckPath: /health
+ 
