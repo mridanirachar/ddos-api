@@ -2,6 +2,7 @@ fastapi==0.111.0
 uvicorn[standard]==0.30.1
 pydantic==2.7.1
 numpy==1.26.4
-tensorflow-cpu==2.16.1   # CPU-only is smaller & faster to install on free tier
-                          # Change to tensorflow==2.16.1 if you need GPU
-python-multipart==0.0.9  # needed for form uploads if you add file endpoint later
+tensorflow-cpu==2.16.1
+python-multipart==0.0.9
+scikit-learn==1.4.2
+joblib==1.4.2
