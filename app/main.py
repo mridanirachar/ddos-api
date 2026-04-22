@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     import tensorflow as tf
 
     logger.info("Loading model...")
-    model = tf.keras.models.load_model(MODEL_PATH)
+    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
 
     if os.path.exists(SCALER_PATH):
         with open(SCALER_PATH, "rb") as f:
