@@ -1,141 +1,116 @@
-"""
-AI-Powered DDoS Detection — Cloud API
-"""
-
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, validator
-from contextlib import asynccontextmanager
-import numpy as np
 import os
+import pickle
 import logging
+import numpy as np
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, field_validator
+from typing import List
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-model = None
+BASE_DIR    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATH  = os.path.join(BASE_DIR, "model", "dnn_ddos_model.keras")
+SCALER_PATH = os.path.join(BASE_DIR, "model", "scaler.pkl")
+LABELS_PATH = os.path.join(BASE_DIR, "model", "labels.txt")
+EXPECTED_FEATURES = 52
+
+model  = None
 scaler = None
-label_names = None
-
-THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.7"))
-MODEL_PATH = os.getenv("MODEL_PATH", "model/dnn_ddos_model.h5")
-SCALER_PATH = os.getenv("SCALER_PATH", "model/scaler.pkl")
-LABELS_PATH = os.getenv("LABELS_PATH", "model/labels.txt")
-
+labels = []
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global model, scaler, label_names
-
-    import pickle
-    import tensorflow as tf
+    global model, scaler, labels
 
     try:
-        logger.info("Loading model...")
+        import tensorflow as tf
+        logger.info(f"TensorFlow {tf.__version__}")
+    except ImportError as e:
+        logger.error(f"TensorFlow not installed: {e}")
+        yield
+        return
 
+    for path, name in [(MODEL_PATH, "Model"), (SCALER_PATH, "Scaler"), (LABELS_PATH, "Labels")]:
+        if not os.path.exists(path):
+            logger.error(f"{name} not found: {path}")
+            yield
+            return
+
+    try:
         model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-
-        if os.path.exists(SCALER_PATH):
-            with open(SCALER_PATH, "rb") as f:
-                scaler = pickle.load(f)
-
-        if os.path.exists(LABELS_PATH):
-            with open(LABELS_PATH) as f:
-                label_names = [line.strip() for line in f if line.strip()]
-
-        # warmup
-        dummy = np.zeros((1, model.input_shape[-1]))
-        model.predict(dummy, verbose=0)
-
-        logger.info("Model loaded successfully ✅")
-
+        model.predict(np.zeros((1, EXPECTED_FEATURES), dtype=np.float32), verbose=0)
+        logger.info("Model loaded OK")
     except Exception as e:
-        logger.error(f"MODEL LOAD FAILED ❌: {e}")
-        model = None
+        logger.error(f"Model load failed: {e}")
+        yield
+        return
+
+    try:
+        with open(SCALER_PATH, "rb") as f:
+            scaler = pickle.load(f)
+        logger.info("Scaler loaded OK")
+    except Exception as e:
+        logger.error(f"Scaler load failed: {e}")
+        yield
+        return
+
+    try:
+        with open(LABELS_PATH, "r") as f:
+            labels = [line.strip() for line in f if line.strip()]
+        logger.info(f"Labels loaded: {labels}")
+    except Exception as e:
+        logger.error(f"Labels load failed: {e}")
+        yield
+        return
 
     yield
+    logger.info("Shutdown.")
 
 
-app = FastAPI(
-    lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json"
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="DDoS Detection API", version="1.0.0", lifespan=lifespan)
 
 
 class PredictRequest(BaseModel):
-    features: list[float]
+    features: List[float]
 
-    @validator("features")
-    def not_empty(cls, v):
-        if not v:
-            raise ValueError("features cannot be empty")
+    @field_validator("features")
+    @classmethod
+    def check_length(cls, v):
+        if len(v) != EXPECTED_FEATURES:
+            raise ValueError(f"Expected {EXPECTED_FEATURES} features, got {len(v)}")
         return v
 
-
-@app.get("/")
-def root():
-    return {"message": "DDoS Detection API is running"}
+class PredictResponse(BaseModel):
+    predicted_class: str
+    confidence: float
+    all_scores: dict
 
 
 @app.get("/health")
 def health():
-    if model is None:
-        return {"status": "model_failed"}
-
+    ready = model is not None and scaler is not None and len(labels) > 0
     return {
-        "status": "ok",
-        "input_dim": int(model.input_shape[-1]),
-        "threshold": THRESHOLD,
+        "status": "ok" if ready else "model_failed",
+        "model_loaded": model is not None,
+        "scaler_loaded": scaler is not None,
+        "labels_loaded": len(labels) > 0,
     }
 
 
-@app.post("/predict")
-def predict(req: PredictRequest):
-    if model is None:
-        raise HTTPException(status_code=500, detail="Model not loaded")
+@app.post("/predict", response_model=PredictResponse)
+def predict(request: PredictRequest):
+    if model is None or scaler is None or not labels:
+        raise HTTPException(status_code=503, detail="Model not loaded")
 
-    expected = int(model.input_shape[-1])
+    X = np.array(request.features, dtype=np.float32).reshape(1, -1)
+    X_scaled = scaler.transform(X)
+    probs = model.predict(X_scaled, verbose=0)[0]
+    top_idx = int(np.argmax(probs))
 
-    if len(req.features) != expected:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Expected {expected} features, got {len(req.features)}"
-        )
-
-    x = np.array(req.features).reshape(1, -1)
-
-    if scaler is not None:
-        x = scaler.transform(x)
-
-    probs = model.predict(x, verbose=0)[0]
-    idx = int(np.argmax(probs))
-    confidence = float(probs[idx])
-
-    if label_names and len(label_names) == len(probs):
-        label = label_names[idx]
-    else:
-        label = str(idx)
-
-    return {
-        "prediction": label,
-        "confidence": confidence,
-        "flagged_unknown": confidence < THRESHOLD,
-    }
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 10000))
+    return PredictResponse(
+        predicted_class=labels[top_idx],
+        confidence=round(float(probs[top_idx]), 6),
+        all_scores={labels[i]: round(float(probs[i]), 6) for i in range(len(labels))},
     )
