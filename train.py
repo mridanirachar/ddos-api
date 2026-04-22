@@ -9,12 +9,12 @@ from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.callbacks import EarlyStopping
 
-DATA_PATH   = "data/cicids2017_cleaned.csv"
-MODEL_DIR   = "model"
-MODEL_PATH  = os.path.join(MODEL_DIR, "dnn_ddos_model.keras")
-SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
-LABELS_PATH = os.path.join(MODEL_DIR, "labels.txt")
-LABEL_COL   = "Attack Type"
+DATA_PATH    = "data/cicids2017_cleaned.csv"
+MODEL_DIR    = "model"
+WEIGHTS_PATH = os.path.join(MODEL_DIR, "dnn_weights.weights.h5")
+SCALER_PATH  = os.path.join(MODEL_DIR, "scaler.pkl")
+LABELS_PATH  = os.path.join(MODEL_DIR, "labels.txt")
+LABEL_COL    = "Attack Type"
 
 os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -53,7 +53,6 @@ model = Sequential([
     Dropout(0.2),
     Dense(num_classes, activation="softmax"),
 ])
-
 model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
 model.summary()
 
@@ -66,5 +65,5 @@ model.fit(
     verbose=1,
 )
 
-model.save(MODEL_PATH)
-print(f"Done. Model → {MODEL_PATH}")
+model.save_weights(WEIGHTS_PATH)
+print(f"Done. Weights -> {WEIGHTS_PATH}")
