@@ -50,7 +50,6 @@ async def lifespan(app: FastAPI):
     yield
 
 
-# ✅ FIX: explicitly enable docs (important for Render)
 app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
@@ -123,4 +122,8 @@ def predict(req: PredictRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000)
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 10000))
+    )
