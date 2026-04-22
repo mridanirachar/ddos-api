@@ -10,15 +10,32 @@ from typing import List
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BASE_DIR    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH  = os.path.join(BASE_DIR, "model", "dnn_ddos_model.keras")
-SCALER_PATH = os.path.join(BASE_DIR, "model", "scaler.pkl")
-LABELS_PATH = os.path.join(BASE_DIR, "model", "labels.txt")
+BASE_DIR     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WEIGHTS_PATH = os.path.join(BASE_DIR, "model", "dnn_weights.npz")
+SCALER_PATH  = os.path.join(BASE_DIR, "model", "scaler.pkl")
+LABELS_PATH  = os.path.join(BASE_DIR, "model", "labels.txt")
 EXPECTED_FEATURES = 52
 
 model  = None
 scaler = None
 labels = []
+
+def build_model(input_dim, num_classes):
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
+    m = Sequential([
+        Dense(256, activation="relu", input_shape=(input_dim,)),
+        BatchNormalization(),
+        Dropout(0.3),
+        Dense(128, activation="relu"),
+        BatchNormalization(),
+        Dropout(0.3),
+        Dense(64, activation="relu"),
+        Dropout(0.2),
+        Dense(num_classes, activation="softmax"),
+    ])
+    m.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
+    return m
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,16 +49,29 @@ async def lifespan(app: FastAPI):
         yield
         return
 
-    for path, name in [(MODEL_PATH, "Model"), (SCALER_PATH, "Scaler"), (LABELS_PATH, "Labels")]:
+    for path, name in [(WEIGHTS_PATH, "Weights"), (SCALER_PATH, "Scaler"), (LABELS_PATH, "Labels")]:
         if not os.path.exists(path):
             logger.error(f"{name} not found: {path}")
             yield
             return
 
     try:
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        with open(LABELS_PATH, "r") as f:
+            labels = [line.strip() for line in f if line.strip()]
+        logger.info(f"Labels loaded: {labels}")
+    except Exception as e:
+        logger.error(f"Labels load failed: {e}")
+        yield
+        return
+
+    try:
+        model = build_model(EXPECTED_FEATURES, len(labels))
         model.predict(np.zeros((1, EXPECTED_FEATURES), dtype=np.float32), verbose=0)
-        logger.info("Model loaded OK")
+        npz = np.load(WEIGHTS_PATH, allow_pickle=False)
+        weights = [npz[f"arr_{i}"] for i in range(len(npz))]
+        model.set_weights(weights)
+        model.predict(np.zeros((1, EXPECTED_FEATURES), dtype=np.float32), verbose=0)
+        logger.info("Model loaded and warmed up OK")
     except Exception as e:
         logger.error(f"Model load failed: {e}")
         yield
@@ -53,15 +83,6 @@ async def lifespan(app: FastAPI):
         logger.info("Scaler loaded OK")
     except Exception as e:
         logger.error(f"Scaler load failed: {e}")
-        yield
-        return
-
-    try:
-        with open(LABELS_PATH, "r") as f:
-            labels = [line.strip() for line in f if line.strip()]
-        logger.info(f"Labels loaded: {labels}")
-    except Exception as e:
-        logger.error(f"Labels load failed: {e}")
         yield
         return
 
