@@ -11,7 +11,7 @@ from tensorflow.keras.callbacks import EarlyStopping
 
 DATA_PATH    = "data/cicids2017_cleaned.csv"
 MODEL_DIR    = "model"
-WEIGHTS_PATH = os.path.join(MODEL_DIR, "dnn_weights.weights.h5")
+WEIGHTS_PATH = os.path.join(MODEL_DIR, "dnn_weights.npz")
 SCALER_PATH  = os.path.join(MODEL_DIR, "scaler.pkl")
 LABELS_PATH  = os.path.join(MODEL_DIR, "labels.txt")
 LABEL_COL    = "Attack Type"
@@ -65,5 +65,6 @@ model.fit(
     verbose=1,
 )
 
-model.save_weights(WEIGHTS_PATH)
+weights = [w.numpy() for w in model.weights]
+np.savez(WEIGHTS_PATH, *weights)
 print(f"Done. Weights -> {WEIGHTS_PATH}")
