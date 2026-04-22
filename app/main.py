@@ -30,22 +30,28 @@ async def lifespan(app: FastAPI):
     import pickle
     import tensorflow as tf
 
-    logger.info("Loading model...")
-    model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+    try:
+        logger.info("Loading model...")
 
-    if os.path.exists(SCALER_PATH):
-        with open(SCALER_PATH, "rb") as f:
-            scaler = pickle.load(f)
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
 
-    if os.path.exists(LABELS_PATH):
-        with open(LABELS_PATH) as f:
-            label_names = [line.strip() for line in f if line.strip()]
+        if os.path.exists(SCALER_PATH):
+            with open(SCALER_PATH, "rb") as f:
+                scaler = pickle.load(f)
 
-    # ✅ Warm-up (prevents cold delay)
-    dummy = np.zeros((1, model.input_shape[-1]))
-    model.predict(dummy, verbose=0)
+        if os.path.exists(LABELS_PATH):
+            with open(LABELS_PATH) as f:
+                label_names = [line.strip() for line in f if line.strip()]
 
-    logger.info("Model loaded successfully")
+        # warmup
+        dummy = np.zeros((1, model.input_shape[-1]))
+        model.predict(dummy, verbose=0)
+
+        logger.info("Model loaded successfully ✅")
+
+    except Exception as e:
+        logger.error(f"MODEL LOAD FAILED ❌: {e}")
+        model = None
 
     yield
 
@@ -82,6 +88,9 @@ def root():
 
 @app.get("/health")
 def health():
+    if model is None:
+        return {"status": "model_failed"}
+
     return {
         "status": "ok",
         "input_dim": int(model.input_shape[-1]),
@@ -91,6 +100,9 @@ def health():
 
 @app.post("/predict")
 def predict(req: PredictRequest):
+    if model is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
+
     expected = int(model.input_shape[-1])
 
     if len(req.features) != expected:
