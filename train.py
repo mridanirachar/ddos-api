@@ -14,7 +14,7 @@ MODEL_DIR   = "model"
 MODEL_PATH  = os.path.join(MODEL_DIR, "dnn_ddos_model.keras")
 SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
 LABELS_PATH = os.path.join(MODEL_DIR, "labels.txt")
-LABEL_COL   = "Label"
+LABEL_COL   = "Attack Type"
 
 os.makedirs(MODEL_DIR, exist_ok=True)
 
